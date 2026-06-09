@@ -106,21 +106,24 @@ model, scaler, CLASES, WINDOW_SIZE, INPUT_SIZE, FEATURES, MODEL_READY = load_mod
 #  SERIAL
 # ══════════════════════════════════════════════════════
 def abrir_serial():
+    # Primero intenta el puerto fijo (sin WMI)
     try:
         s = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.02)
         print(f"✓ ESP32 en {SERIAL_PORT}\n")
         return s
     except serial.SerialException:
-        for p in serial.tools.list_ports.comports():
-            if any(x in p.description for x in ("CP210", "CH340", "FTDI", "USB Serial")):
-                try:
-                    s = serial.Serial(p.device, BAUD_RATE, timeout=0.02)
-                    print(f"✓ ESP32 en {p.device}\n")
-                    return s
-                except serial.SerialException:
-                    continue
-        print("✗ ESP32 no encontrado. Conecta el cable USB.")
-        raise SystemExit(1)
+        pass
+    # Solo si falla, escaneo WMI una única vez
+    for p in serial.tools.list_ports.comports():
+        if any(x in p.description for x in ("CP210", "CH340", "FTDI", "USB Serial")):
+            try:
+                s = serial.Serial(p.device, BAUD_RATE, timeout=0.02)
+                print(f"✓ ESP32 en {p.device}\n")
+                return s
+            except serial.SerialException:
+                continue
+    print("✗ ESP32 no encontrado. Conecta el cable USB.")
+    raise SystemExit(1)
 
 # ══════════════════════════════════════════════════════
 #  TECLADO

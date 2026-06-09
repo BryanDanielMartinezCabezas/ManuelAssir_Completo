@@ -104,37 +104,34 @@ async def process_frame(frame: dict):
         S.rep_frame_count += 1
 
 # ── Tarea Serial ─────────────────────────────────────────────────────
-def abrir_serial():
-    # Intenta el puerto configurado primero
-    try:
-        s = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.05)
-        print(f"[SERIAL] ESP32 en {SERIAL_PORT}")
-        return s
-    except serial.SerialException:
-        pass
-    # Escaneo de respaldo — solo si el puerto fijo falla
+def detectar_puerto():
+    """Escaneo WMI una sola vez — solo llamar al inicio."""
     for p in serial.tools.list_ports.comports():
         if any(x in p.description for x in ("CP210", "CH340", "FTDI", "USB Serial")):
-            try:
-                s = serial.Serial(p.device, BAUD_RATE, timeout=0.05)
-                print(f"[SERIAL] ESP32 encontrado en {p.device}")
-                return s
-            except serial.SerialException:
-                continue
-    return None
+            return p.device
+    return SERIAL_PORT  # fallback al puerto configurado
+
+def abrir_serial(puerto: str):
+    try:
+        s = serial.Serial(puerto, BAUD_RATE, timeout=0.1)
+        print(f"[SERIAL] ESP32 en {puerto}")
+        return s
+    except serial.SerialException:
+        return None
 
 async def task_serial():
     loop = asyncio.get_event_loop()
 
-    # Primer intento con pausa para que Windows termine la enumeración USB
+    # Escaneo WMI una sola vez al arrancar
     await asyncio.sleep(2)
-    ser = await loop.run_in_executor(None, abrir_serial)
+    puerto = await loop.run_in_executor(None, detectar_puerto)
+    ser = await loop.run_in_executor(None, abrir_serial, puerto)
 
     if ser:
         S.esp_connected = True
-        await broadcast({"type": "status", "connected": True, "esp_ip": SERIAL_PORT})
+        await broadcast({"type": "status", "connected": True, "esp_ip": puerto})
     else:
-        print("[SERIAL] ⚠ ESP32 no encontrado — usa Modo Simulación")
+        print(f"[SERIAL] ⚠ ESP32 no encontrado en {puerto} — usa Modo Simulación")
 
     while True:
         if S.simulating:
@@ -142,12 +139,12 @@ async def task_serial():
             continue
 
         if ser is None:
-            # Espera 5s entre intentos — evita aplastar el driver CP2102
-            await asyncio.sleep(5)
-            ser = await loop.run_in_executor(None, abrir_serial)
+            # Reintenta solo el puerto conocido, sin WMI — cada 10s
+            await asyncio.sleep(10)
+            ser = await loop.run_in_executor(None, abrir_serial, puerto)
             if ser:
                 S.esp_connected = True
-                await broadcast({"type": "status", "connected": True, "esp_ip": SERIAL_PORT})
+                await broadcast({"type": "status", "connected": True, "esp_ip": puerto})
             continue
 
         try:
