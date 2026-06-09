@@ -39,6 +39,7 @@ CSV_HEADER = (
 # ── Estado global ───────────────────────────────────────────────────
 app     = FastAPI()
 clients: set[WebSocket] = set()
+_serial_task = None
 
 class State:
     esp_connected: bool  = False
@@ -104,34 +105,23 @@ async def process_frame(frame: dict):
         S.rep_frame_count += 1
 
 # ── Tarea Serial ─────────────────────────────────────────────────────
-def detectar_puerto():
-    """Escaneo WMI una sola vez — solo llamar al inicio."""
-    for p in serial.tools.list_ports.comports():
-        if any(x in p.description for x in ("CP210", "CH340", "FTDI", "USB Serial")):
-            return p.device
-    return SERIAL_PORT  # fallback al puerto configurado
-
-def abrir_serial(puerto: str):
+def abrir_serial():
     try:
-        s = serial.Serial(puerto, BAUD_RATE, timeout=0.1)
-        print(f"[SERIAL] ESP32 en {puerto}")
+        s = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=0.05)
+        print(f"[SERIAL] ESP32 en {SERIAL_PORT}")
         return s
-    except serial.SerialException:
+    except serial.SerialException as e:
+        print(f"[SERIAL] ⚠ {e}")
         return None
 
 async def task_serial():
     loop = asyncio.get_event_loop()
-
-    # Escaneo WMI una sola vez al arrancar
-    await asyncio.sleep(2)
-    puerto = await loop.run_in_executor(None, detectar_puerto)
-    ser = await loop.run_in_executor(None, abrir_serial, puerto)
+    await asyncio.sleep(1)
+    ser = await loop.run_in_executor(None, abrir_serial)
 
     if ser:
         S.esp_connected = True
-        await broadcast({"type": "status", "connected": True, "esp_ip": puerto})
-    else:
-        print(f"[SERIAL] ⚠ ESP32 no encontrado en {puerto} — usa Modo Simulación")
+        await broadcast({"type": "status", "connected": True, "esp_ip": SERIAL_PORT})
 
     while True:
         if S.simulating:
@@ -139,12 +129,11 @@ async def task_serial():
             continue
 
         if ser is None:
-            # Reintenta solo el puerto conocido, sin WMI — cada 10s
             await asyncio.sleep(10)
-            ser = await loop.run_in_executor(None, abrir_serial, puerto)
+            ser = await loop.run_in_executor(None, abrir_serial)
             if ser:
                 S.esp_connected = True
-                await broadcast({"type": "status", "connected": True, "esp_ip": puerto})
+                await broadcast({"type": "status", "connected": True, "esp_ip": SERIAL_PORT})
             continue
 
         try:
@@ -204,7 +193,8 @@ async def task_simulate():
 # ── HTTP + WebSocket ─────────────────────────────────────────────────
 @app.on_event("startup")
 async def startup():
-    asyncio.create_task(task_serial())
+    global _serial_task
+    _serial_task = asyncio.get_event_loop().create_task(task_serial())
 
 @app.get("/", response_class=HTMLResponse)
 async def index():

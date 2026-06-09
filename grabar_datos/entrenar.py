@@ -18,14 +18,19 @@ from torch.utils.data import DataLoader, TensorDataset
 # ── Configuración ──────────────────────────────────────────────────
 DATA_DIR    = Path(__file__).parent / "data"
 OUT_DIR     = Path(__file__).parent
-WINDOW_SIZE = 1
+WINDOW_SIZE = 3        # ventana de 3 tramas → ~150ms de contexto a 20fps
 AUGMENT_X   = 8        # muestras sintéticas por muestra real
 EPOCHS      = 60
 BATCH_SIZE  = 32
 LR          = 1e-3
 
-# Columnas que siempre dan 0 (giroscopio del dedo medio dañado)
-COLS_DROP = ["medio_gx", "medio_gy", "medio_gz"]
+# medio_gx/gy/gz  → giróscopo dañado, siempre 0
+# anular_gx/gy/gz → saturaba ±250°/s con firmware V01/V02 (datos existentes inválidos)
+#   Una vez regrabado con firmware V03 (±500°/s), quitar anular_g* de esta lista.
+COLS_DROP = [
+    "medio_gx",  "medio_gy",  "medio_gz",
+    "anular_gx", "anular_gy", "anular_gz",
+]
 
 # ── Cargar CSVs ────────────────────────────────────────────────────
 csv_files = {
@@ -34,7 +39,6 @@ csv_files = {
     "btn_C":     [DATA_DIR / "btn_C_20260609_010828.csv",
                   DATA_DIR / "btn_C_20260609_011408.csv"],
     "btn_D":     [DATA_DIR / "btn_D_20260609_005927.csv"],
-    "arriba":    [DATA_DIR / "arriba_20260609_011937.csv"],
     "abajo":     [DATA_DIR / "abajo_20260609_012812.csv"],
     "derecha":   [DATA_DIR / "derecha_20260609_013657.csv"],
     "izquierda": [DATA_DIR / "izquierda_20260609_014533.csv"],
@@ -62,15 +66,19 @@ print(f"\nClases: {CLASES}")
 print(f"Features: {len(FEATURE_COLS)} × ventana {WINDOW_SIZE} = {len(FEATURE_COLS)*WINDOW_SIZE} inputs")
 
 # ── Crear ventanas deslizantes (sin cruzar gaps > 1.5s) ───────────
+FRAME_INTERVAL = 0.055  # 50ms nominal + 10% margen de jitter
+
 def make_windows(df, window=WINDOW_SIZE):
     X, y = [], []
     ts  = df["timestamp"].values
     feat = df[FEATURE_COLS].values
     labs = df["gesto"].values
 
+    max_span = FRAME_INTERVAL * (window - 1) * 3  # tolera 3× el tiempo esperado
+
     for i in range(len(df) - window + 1):
-        # No cruzar descansos entre reps
-        if (ts[i + window - 1] - ts[i]) > 1.5 * window:
+        # Descarta ventanas que cruzan pausas entre repeticiones
+        if (ts[i + window - 1] - ts[i]) > max_span:
             continue
         # Todas las filas de la ventana deben ser el mismo gesto
         if len(set(labs[i:i+window])) > 1:
