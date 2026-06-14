@@ -13,9 +13,9 @@ Confirmación:
   - 2 segundos en reposo      → escribe la letra pendiente
   - Cambiar a otro dedo       → confirma la anterior, empieza la nueva
 
-Controles:
-  [I]    activar
-  [O]    pausar
+Controles (función, no escriben texto):
+  [F5]   activar teclado
+  [F6]   pausar teclado
   Ctrl+C salir
 """
 
@@ -156,14 +156,13 @@ def abrir_serial():
 def on_key_press(key):
     global control_activo
     try:
-        ch = key.char.lower() if hasattr(key, 'char') and key.char else None
-        if ch == 'i':
+        if key == Key.f5:
             control_activo = True
             print("\n  ▶ Teclado ACTIVO\n")
             _imprimir_mapa()
-        elif ch == 'o':
+        elif key == Key.f6:
             control_activo = False
-            print("\n  ⏸ Teclado PAUSADO — presiona [I] para reanudar\n")
+            print("\n  ⏸ Teclado PAUSADO — presiona [F5] para reanudar\n")
     except Exception:
         pass
 
@@ -181,8 +180,8 @@ ser = abrir_serial()
 
 print("  Mapeo de letras:")
 _imprimir_mapa()
-print("  [I] activar  |  [O] pausar  |  Ctrl+C salir")
-print("  ⏸ Esperando [I]...\n")
+print("  [F5] activar  |  [F6] pausar  |  Ctrl+C salir")
+print("  ⏸ Abre el Bloc de Notas, haz clic en el, luego presiona [F5]...\n")
 
 current_lines = []
 
